@@ -19,7 +19,7 @@ AS5600 идеально подходит для бесконтактных по�
 Напряжение питания AS5600 от 3,3 В до 5,0 В!
 
 ## Шина I2C
-Просто подключите контакты (VCC, GND, SDA, SCL) платы с AS5600 к соответствующим контактам MicroPython платы, 
+Просто подключите контакты (VCC, GND, SDA, SCL) платы энкодера к соответствующим контактам MicroPython платы, 
 ESP или любой другой с залитой прошивкой MicroPython!
 
 ## Загрузка ПО в плату
@@ -28,7 +28,14 @@ ESP или любой другой с залитой прошивкой MicroPyt
 
 # Картинки
 ## Плата AS5600
-![alt text](https://github.com/octaprog7/veml6040/blob/master/pics/6040_led_off.jpg)
-![alt text](https://github.com/octaprog7/veml6040/blob/master/pics/6040_led_on.jpg)
+![alt text](https://github.com/octaprog7/as5600/blob/master/pics/board/board_0.jpg)
+![alt text](https://github.com/octaprog7/as5600/blob/master/pics/board/board_1.jpg)
+![alt text](https://github.com/octaprog7/as5600/blob/master/pics/board/board_2.jpg)
+![alt text](https://github.com/octaprog7/as5600/blob/master/pics/board/board_3.jpg)
+![alt text](https://github.com/octaprog7/as5600/blob/master/pics/board/board_4.jpg)
+![alt text](https://github.com/octaprog7/as5600/blob/master/pics/board/board_5.jpg)
 ## Среда разработки
-![alt text](https://github.com/octaprog7/veml6040/blob/master/pics/ide_6040.png)
+![alt text](https://github.com/octaprog7/as5600/blob/master/pics/ide_1.png)
+![alt text](https://github.com/octaprog7/as5600/blob/master/pics/ide_2.png)
+![alt text](https://github.com/octaprog7/as5600/blob/master/pics/ide_3.png)
+
