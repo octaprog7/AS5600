@@ -34,6 +34,7 @@ ESP или любой другой с залитой прошивкой MicroPyt
 ![alt text](https://github.com/octaprog7/as5600/blob/master/pics/board/board_3.jpg)
 ![alt text](https://github.com/octaprog7/as5600/blob/master/pics/board/board_4.jpg)
 ![alt text](https://github.com/octaprog7/as5600/blob/master/pics/board/board_5.jpg)
+![alt text](https://github.com/octaprog7/as5600/blob/master/pics/board/shaft.jpg)
 ## Среда разработки
 ![alt text](https://github.com/octaprog7/as5600/blob/master/pics/ide_1.png)
 ![alt text](https://github.com/octaprog7/as5600/blob/master/pics/ide_2.png)
