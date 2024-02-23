@@ -273,6 +273,18 @@ class AS5600(DeviceEx, Iterator):
     def start_measurement(self, slow_filter: int = 1, fast_filter_threshold: int = 0, watchdog: bool = False,
                           pwm_freq: int = 2, output_stage: int = 2, hysteresis: int = 1, power_mode: int = 1):
         """Настраивает параметры датчика"""
+        def get_err_str(val_name: str, val: int, rng: range) -> str:
+            """Возвращает подробное сообщение об ошибке"""
+            return f"Значение {val} параметра {val_name} вне диапазона [{rng.start}..{rng.stop-1}]!"
+        r4 = range(4)
+        check_value(slow_filter, r4, get_err_str("slow filter", slow_filter, r4))
+        check_value(fast_filter_threshold, range(8), get_err_str("fast filter threshold",
+                                                                 fast_filter_threshold, range(8)))
+        check_value(pwm_freq, r4, get_err_str("pwm freq", pwm_freq, r4))
+        check_value(output_stage, range(3), get_err_str("output stage", output_stage, range(3)))
+        check_value(hysteresis, r4, get_err_str("hysteresis", hysteresis, r4))
+        check_value(power_mode, r4, get_err_str("power_mode", power_mode, r4))
+        #
         self._conf(watchdog, fast_filter_threshold, slow_filter, pwm_freq, output_stage, hysteresis, power_mode)
 
     # Iterator
