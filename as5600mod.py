@@ -37,7 +37,7 @@ def raw_to_degrees(raw: int) -> float:
 _conf_masks = range(13, 14), range(10, 13), range(8, 10), range(6, 8), range(4, 6), range(2, 4), range(2)
 
 # именованный кортеж конфигурации для регистра CONF
-config_as5600 = namedtuple("config_t",
+config_as5600 = namedtuple("config_as5600",
                            ("watchdog", "fast_filter_threshold", "slow_filter",
                             "pwm_freq", "output_stage", "hysteresis", "power_mode"))
 
@@ -47,7 +47,7 @@ config_as5600 = namedtuple("config_t",
 _status_masks = range(5, 6), range(4, 5), range(3, 4)
 # именованный кортеж - состояние"""
 # для метода get_status
-status_as5600 = namedtuple("status_t", "mag_detected max_gain_ovf min_gain_ovf")
+status_as5600 = namedtuple("status_as5600", "mag_detected max_gain_ovf min_gain_ovf")
 # для хранения угловых положений: ZPOS, MPOS, MANG
 angle_positions = namedtuple("angle_positions", "start stop angular_range")
 
