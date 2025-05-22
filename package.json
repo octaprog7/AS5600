@@ -1,0 +1,11 @@
+{
+  "urls": [
+    ["as5600mod.py", "github:octaprog7/AS5600/as5600mod.py"],
+    ["sensor_pack_2/__init__.py", "github:octaprog7/AS5600/sensor_pack_2/__init__.py"],
+    ["sensor_pack_2/aliased.py", "github:octaprog7/AS5600/sensor_pack_2/aliased.py"],
+    ["sensor_pack_2/base_sensor.py", "github:octaprog7/AS5600/sensor_pack_2/base_sensor.py"],
+    ["sensor_pack_2/bus_service.py", "github:octaprog7/AS5600/sensor_pack_2/bus_service.py"]
+  ],
+  "version": "1.0.0",
+  "deps": []
+}
