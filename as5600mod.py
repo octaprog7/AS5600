@@ -45,21 +45,21 @@ config_as5600 = namedtuple("config_as5600",
 # Превышение максимального усиления АРУ, слишком слабый магнит (max_gain_ovf)
 # Магнит обнаружен (mag_detected)
 _status_masks = range(5, 6), range(4, 5), range(3, 4)
-# именованный кортеж - состояние"""
+# именованный кортеж - состояние
 # для метода get_status
 status_as5600 = namedtuple("status_as5600", "mag_detected max_gain_ovf min_gain_ovf")
 # для хранения угловых положений: ZPOS, MPOS, MANG
 angle_positions = namedtuple("angle_positions", "start stop angular_range")
 
 
-def _check_slow_filter(sf: int):
+def _check_slow_filter(sf: int) -> int:
     """Проверяет параметр slow_filter (0..3) на правильность
     Соответствие параметр slow_filter и времени интегрирования в мс
     0 - 2.2 мс
     1 - 1.1 мс
     2 - 0.55 мс
     3 - 0.286 мс"""
-    check_value(sf, range(4), f"Неверное значение параметра slow_filter: {sf}")
+    return check_value(sf, range(4), f"Неверное значение параметра slow_filter: {sf}")
 
 
 class AS5600(DeviceEx, Iterator):
@@ -78,31 +78,31 @@ class AS5600(DeviceEx, Iterator):
         # Для быстрого реагирования на скачки и низкого уровня шума после стабилизации можно включить fast filter.
         # Он работает только в том случае, если изменение угла превышает(!) порог fast filter, в противном случае
         # выходной отклик определяется только slow filter.
-        self._fast_filter_threshold = None,  # bit 12..10
+        self._fast_filter_threshold = None  # bit 12..10
         # Если быстрый фильтр выключен, переходная характеристика выходного (угла) сигнала контролируется
         # медленным линейным фильтром.
-        self._slow_filter = 0,  # bit 9..8,
+        self._slow_filter = 0  # bit 9..8,
         # частота ШИМ. 00 = 115 Hz; 01 = 230 Hz; 10 = 460 Hz; 11 = 920 Hz
-        self._pwm_freq = None,  # bit 7..6,
+        self._pwm_freq = None  # bit 7..6,
         # 0x00 - аналоговый выход (выходное напряжение в пределах 0..100% VDD)
         # 0x01 - аналоговый выход (выходное напряжение в пределах 10..90% VDD)
         # 0x02 - на выводе микросхемы датчика ШИМ(!)
-        self._output_stage = None,  # bit 5..4,
+        self._output_stage = None  # bit 5..4,
         # Чтобы избежать любого переключения выхода, когда магнит не движется, можно включить гистерезис от 1 до 3
         # младших разрядов 12-битного разрешения.
-        self._hysteresis = None,  # bit 3..2,
+        self._hysteresis = None  # bit 3..2,
         # Цифровой конечный автомат автоматически управляет режимами пониженного энергопотребления, чтобы снизить
         # среднее потребление тока. Доступны и могут быть включены три(!) режима пониженного энергопотребления!
         # PM0 - датчик всегда(!) включен
         # PM1 - период опроса 5 мс
         # PM2 - период опроса 20 мс
         # PM3 - период опроса 100 мс
-        self._power_mode = None,  # bit 1..0
+        self._power_mode = None  # bit 1..0
         #
         self.get_status()  # читаю состояние датчика
         self.get_config()  # читаю настройки датчика
 
-    def get_status(self, noreturn: bool = True) -> [status_as5600, None]:
+    def get_status(self, noreturn: bool = True) -> status_as5600 | None:
         """Возвращает содержимое регистра состояния(STATUS) в виде именованного кортежа (MD, ML, MH)
         MH - минимальное усиления АРУ, слишком сильный магнит(min_gain_ovf).
         ML - Превышение максимального усиления АРУ, слишком слабый магнит(max_gain_ovf).
@@ -115,7 +115,7 @@ class AS5600(DeviceEx, Iterator):
         # сохраняю состояние магнита энкодера
         self._mag_detected, self._max_gain_ovf, self._min_gain_ovf = stat
         if noreturn:
-            return
+            return None
         return stat
 
     @property
@@ -132,18 +132,18 @@ class AS5600(DeviceEx, Iterator):
 
     def get_raw_angle(self, raw: bool = False) -> int:
         """Возвращает сырой(raw) угол поворота магнита относительно микросхемы.
-        Если raw в Истина, то возвращенное значение не масштабировано (сырое)!
+        Если raw Истина, то возвращенное значение не масштабировано (сырое)!
         Регистр ANGLE имеет гистерезис 10-LSB на пределе диапазона 360 градусов,
         чтобы избежать точек разрыва или переключения выхода в течение одного оборота."""
         return _mask_12 & self.unpack(f"H", self.read_reg(0x0C if raw else 0x0E, 2))[0]
 
-    def get_config(self, noreturn: bool = True) -> [config_as5600, None]:
+    def get_config(self, noreturn: bool = True) -> config_as5600 | None:
         """Возвращает текущие настройки датчика, регистр CONF, в виде именованного кортежа"""
         _conf = self._conf()
         (self._watchdog, self._fast_filter_threshold, self._slow_filter, self._pwm_freq, self._output_stage,
          self._hysteresis, self._power_mode) = _conf
         if noreturn:
-            return
+            return None
         return _conf
 
     def get_angle_pos(self, raw: bool = True) -> angle_positions:
@@ -160,7 +160,7 @@ class AS5600(DeviceEx, Iterator):
         # print(f"DBG:get_angle_pos {list(itr)}")
         return angle_positions(*itr)
 
-    def set_angle_pos(self, start: int = 0, stop: [int, None] = 360, angular_range: [int, None] = None):
+    def set_angle_pos(self, start: int = 0, stop: int | None = 360, angular_range: int | None = None):
         """Записывает в регистры датчика начальное угловое положение(start), конечное угловое положение(stop).
         Угловой диапазон вычисляется автоматически!
         Задавайте пару start и stop, или пару start и angular_range.
@@ -203,25 +203,24 @@ class AS5600(DeviceEx, Iterator):
 
     @micropython.native
     def get_conversion_cycle_time(self) -> int:
-        """Возвращает время преобразования в [мкc] датчиком данных цвета. В микросекундах!"""
+        """Возвращает время преобразования в [мкс] датчиком данных цвета. В микросекундах!"""
         k = self._slow_filter
         _check_slow_filter(k)
         return 11 + (2200 // (1 << k))
 
     def _conf(self,
-              watchdog: [bool, None] = None,  # bit 13,
-              fast_filter_threshold: [int, None] = None,  # bit 12..10
-              slow_filter: [int, None] = None,  # bit 9..8,
-              pwm_freq: [int, None] = None,  # bit 7..6,
-              output_stage: [int, None] = None,  # bit 5..4,
-              hysteresis: [int, None] = None,  # bit 3..2,
-              power_mode: [int, None] = None,  # bit 1..0
-              ) -> config_as5600:
+              watchdog: bool | None = None,  # bit 13,
+              fast_filter_threshold: int | None = None,  # bit 12..10
+              slow_filter: int | None = None,  # bit 9..8,
+              pwm_freq: int | None = None,  # bit 7..6,
+              output_stage: int | None = None,  # bit 5..4,
+              hysteresis: int | None = None,  # bit 3..2,
+              power_mode: int | None = None,  # bit 1..0
+              ) -> config_as5600 | None:
         """Регистр CONF. Если все параметры в None, возвращает содержимое регистра"""
         val = self.unpack(f"H", self.read_reg(0x07, 2))[0]
         if all_none(watchdog, fast_filter_threshold, slow_filter, pwm_freq,
                     output_stage, hysteresis, power_mode):
-            # print(f"DBG _conf before: 0x{val:x}")
             return config_as5600(*get_bf_gen(val, _conf_masks))
         #
         if watchdog is not None:
@@ -254,6 +253,7 @@ class AS5600(DeviceEx, Iterator):
             val |= power_mode << _mask.start
         # print(f"DBG _settings after: 0x{val:x}")
         self.write_reg(0x07, val, 2)
+        return None
 
     @property
     def magnitude(self) -> int:
@@ -288,6 +288,6 @@ class AS5600(DeviceEx, Iterator):
         self._conf(watchdog, fast_filter_threshold, slow_filter, pwm_freq, output_stage, hysteresis, power_mode)
 
     # Iterator
-    def __next__(self) -> [int, None]:
+    def __next__(self) -> float | None:
         """Часть протокола итератора"""
         return self.angle

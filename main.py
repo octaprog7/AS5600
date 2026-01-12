@@ -25,13 +25,14 @@ def decode_config(source: as5600mod.config_as5600):
             return "выключен"
         return f"{hyst}"
 
-    def decode_output_stage(stage: int) -> str:
+    def decode_output_stage(stage: int) -> str | None:
         if 0 == stage:
             return "аналоговый выход. диапазон GND..VDD"
         if 1 == stage:
             return "аналоговый выход. диапазон 10% VDD..90% VDD"
         if 2 == stage:
             return "Цифровой выход. ШИМ."
+        return None
 
     def decode_pwmf(pwmf: int) -> int:
         vals = 115, 230, 460, 920   # Гц

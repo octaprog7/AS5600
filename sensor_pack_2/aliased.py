@@ -7,7 +7,7 @@ def bitmask(bit_mask_range: range) -> int:
     return sum(map(lambda _x: 1 << _x, bit_mask_range))
 
 
-def get_bf(source: int, mask: range) -> [bool, int]:
+def get_bf(source: int, mask: range) -> bool | int:
     """Возвращает битовое поле из source c использованием диапазона битовой маски mask"""
     if not mask:    # длина битовой маски не может быть меньше одного бита!
         raise ValueError(f"Неверный mask! {mask}")
@@ -17,14 +17,14 @@ def get_bf(source: int, mask: range) -> [bool, int]:
     return val
 
 
-def get_bf_gen(source: int, masks: iter[range]) -> [bool, int]:
+def get_bf_gen(source: int, masks: iter) -> iter:
     """Функция-генератор. Возвращает битовое поле из source c использованием диапазона битовой маски mask"""
     for mask in masks:
         yield get_bf(source, mask)
 
 
 class Aliased:
-    def __init__(self, alias: [str]):
+    def __init__(self, alias: str):
         self._alias = alias
 
     @property
@@ -40,17 +40,18 @@ class AliasedStore:
     def __init__(self, items: tuple[Aliased]):
         self._items = items
 
-    def __getitem__(self, item: [str]) -> [Aliased, None]:
+    def __getitem__(self, item: [str]) -> Aliased | None:
         if isinstance(item, str):
             for item in self._items:
                 if item.alias == item:
                     return item
+        return None
 
 
 class BitField(Aliased):
     """Класс для удобной работы с битовым полем."""
 
-    def __init__(self, alias: [str, None], rng: range):
+    def __init__(self, alias: str | None, rng: range):
         """alias - псевдоним (для удобства, например "work_mode3:0")
         rng: номера бит бит битового поля. Например range(3) - биты 0, 1, 2; range(2, 4) - биты 2, 3!"""
         super().__init__(alias)
@@ -110,7 +111,7 @@ class Registry(Aliased):
 #    def value(self, new_val):
 #        self._value = new_val
 
-    def __getitem__(self, item: [str, int]) -> [BitField, None]:
+    def __getitem__(self, item: str | int) -> BitField | None:
         """возвращает BitField класс регистра, по его alias или индексу"""
         if isinstance(item, int):
             return self._fields[item]
@@ -118,7 +119,8 @@ class Registry(Aliased):
             for field in self._fields:
                 if field.alias == item:
                     return field
-            return None
+        #    return None
+        return None
 
     @property
     def readable(self) -> bool:
