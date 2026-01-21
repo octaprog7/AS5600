@@ -2,33 +2,53 @@
 # micropython
 # mail: goctaprog@gmail.com
 # MIT license
-# import struct
 import time
-from micropython import const
-from sensor_pack_2 import bus_service
-from sensor_pack_2.base_sensor import DeviceEx, Iterator, check_value, all_none
 import micropython
+from micropython import const
 from collections import namedtuple
-from sensor_pack_2.aliased import get_bf_gen, bitmask
-
-_mask_12 = bitmask(range(12))
-_all_round = const(360)
-raw_per_degrees: float = const((1+_mask_12)/_all_round)
+from sensor_pack_2 import bus_service
+from sensor_pack_2.base_sensor import IBaseSensorEx, Iterator, DeviceEx, check_value, all_none
 
 
-def degrees_to_raw(degrees: int) -> int:
+@micropython.native
+def _bitmask(bit_mask_range: range) -> int:
+    """Возвращает битовую маску по занимаемым битам."""
+    mask = 0
+    for bit in bit_mask_range:
+        mask |= (1 << bit)
+    return mask
+
+def _get_bf(source: int, mask: range) -> bool | int:
+    """Возвращает битовое поле из source c использованием диапазона битовой маски mask"""
+    if not mask:    # длина битовой маски не может быть меньше одного бита!
+        raise ValueError(f"Неверный mask! {mask}")
+    val = (source & _bitmask(mask)) >> mask.start
+    if 1 == len(mask):
+        return bool(val)
+    return val
+
+_mask_12: int = const(_bitmask(range(12)))
+_all_round: int = const(360)
+_raw_per_degrees: float = const((1+_mask_12)/_all_round)
+
+def _get_bf_gen(source: int, masks: iter) -> iter:
+    """Функция-генератор. Возвращает битовое поле из source c использованием диапазона битовой маски mask"""
+    for mask in masks:
+        yield _get_bf(source, mask)
+
+def _degrees_to_raw(degrees: int) -> int:
     """Преобразует градусы от 0 до 360 в сырые значения для записи в регистры датчика"""
     check_value(degrees, range(1+_all_round), f"Значение параметра degrees вне допустимого диапазона: {degrees}!")
-    val = int(round(raw_per_degrees * degrees))
+    val = int(round(_raw_per_degrees * degrees))
     if val > _mask_12:
         return _mask_12
     return val
 
 
-def raw_to_degrees(raw: int) -> float:
+def _raw_to_degrees(raw: int) -> float:
     """Преобразует сырые значения углов из регистров датчика в градусы от 0 до 360"""
     check_value(raw, range(1 + _mask_12), f"Значение параметра raw вне допустимого диапазона: {raw}!")
-    return raw / raw_per_degrees
+    return raw / _raw_per_degrees
 
 
 # маски для битовых полей регистра CONF
@@ -62,12 +82,14 @@ def _check_slow_filter(sf: int) -> int:
     return check_value(sf, range(4), f"Неверное значение параметра slow_filter: {sf}")
 
 
-class AS5600(DeviceEx, Iterator):
+class AS5600(IBaseSensorEx, Iterator):
     """Класс MicroPython для управления 12-ти битным однооборотным магнитным энкодером AS5600 от AMS OSRAM."""
 
     def __init__(self, adapter: bus_service.BusAdapter, address=0x36):
         """i2c - объект класса I2C; address - адрес датчика на шине. Он не изменяется!"""
-        super().__init__(adapter, address, True)
+        # self._connection = DeviceEx(adapter=adapter, address=address, big_byte_order=True)
+        # super().__init__(adapter, address, True)
+        self._connection = DeviceEx(adapter=adapter, address=address, big_byte_order=True)
         self._buf_6 = bytearray((0 for _ in range(6)))  # буфер для угловых положений
         # magnet. состояние внешнего магнита энкодера. обновляются методом get_status()
         self._mag_detected = self._max_gain_ovf = self._min_gain_ovf = None
@@ -107,11 +129,11 @@ class AS5600(DeviceEx, Iterator):
         MH - минимальное усиления АРУ, слишком сильный магнит(min_gain_ovf).
         ML - Превышение максимального усиления АРУ, слишком слабый магнит(max_gain_ovf).
         МD - Магнит обнаружен.(mag_detected)"""
-        val = self.read_reg(0x0B, 1)[0]
+        val = self._connection.read_reg(reg_addr=0x0B, bytes_count=1)[0]
         # return 0 != (val & 0b10_0000), 0 != (val & 0b01_0000), 0 != (val & 0b00_1000)
         #               магнит в норме          магнит слишком слабый  магнит слишком сильный
         # return status_t(0 != (val & 0b10_0000), 0 != (val & 0b01_0000), 0 != (val & 0b00_1000))
-        stat = status_as5600(*get_bf_gen(val, _status_masks))
+        stat = status_as5600(*_get_bf_gen(val, _status_masks))
         # сохраняю состояние магнита энкодера
         self._mag_detected, self._max_gain_ovf, self._min_gain_ovf = stat
         if noreturn:
@@ -124,26 +146,28 @@ class AS5600(DeviceEx, Iterator):
 
     def _get_gain(self) -> int:
         """Возвращает содержимое регистра Automatic Gain Control (ACG)"""
-        return self.read_reg(0x1A, 1)[0]
+        return self._connection.read_reg(reg_addr=0x1A, bytes_count=1)[0]
 
     def _get_magnitude(self) -> int:
         """Возвращает содержимое регистра MAGNITUDE"""
-        return _mask_12 & self.unpack(f"H", self.read_reg(0x1B, 2))[0]
+        conn = self._connection
+        return _mask_12 & conn.unpack(f"H", conn.read_reg(reg_addr=0x1B, bytes_count=2))[0]
 
     def get_raw_angle(self, raw: bool = False) -> int:
         """Возвращает сырой(raw) угол поворота магнита относительно микросхемы.
         Если raw Истина, то возвращенное значение не масштабировано (сырое)!
         Регистр ANGLE имеет гистерезис 10-LSB на пределе диапазона 360 градусов,
         чтобы избежать точек разрыва или переключения выхода в течение одного оборота."""
-        return _mask_12 & self.unpack(f"H", self.read_reg(0x0C if raw else 0x0E, 2))[0]
+        conn = self._connection
+        return _mask_12 & conn.unpack(f"H", conn.read_reg(0x0C if raw else 0x0E, bytes_count=2))[0]
 
     def get_config(self, noreturn: bool = True) -> config_as5600 | None:
         """Возвращает текущие настройки датчика, регистр CONF, в виде именованного кортежа"""
+        if noreturn:
+            return None
         _conf = self._conf()
         (self._watchdog, self._fast_filter_threshold, self._slow_filter, self._pwm_freq, self._output_stage,
          self._hysteresis, self._power_mode) = _conf
-        if noreturn:
-            return None
         return _conf
 
     def get_angle_pos(self, raw: bool = True) -> angle_positions:
@@ -151,13 +175,13 @@ class AS5600(DeviceEx, Iterator):
         начального углового положения(ZPOS/start)
         конечного углового положения(MPOS/stop)
         размера углового диапазона(MANG/angular_range)"""
+        conn = self._connection
         buf = self._buf_6
-        self.read_buf_from_mem(address=0x01, buf=buf)
+        conn.read_buf_from_mem(address=0x01, buf=buf)
         if raw:
-            itr = map(lambda x: _mask_12 & x, self.unpack(fmt_char="HHH", source=buf))
+            itr = map(lambda x: _mask_12 & x, conn.unpack(fmt_char="HHH", source=buf))
         else:
-            itr = map(lambda x: raw_to_degrees(_mask_12 & x), self.unpack(fmt_char="HHH", source=buf))
-        # print(f"DBG:get_angle_pos {list(itr)}")
+            itr = map(lambda x: _raw_to_degrees(_mask_12 & x), conn.unpack(fmt_char="HHH", source=buf))
         return angle_positions(*itr)
 
     def set_angle_pos(self, start: int = 0, stop: int | None = 360, angular_range: int | None = None):
@@ -178,28 +202,31 @@ class AS5600(DeviceEx, Iterator):
             raise ValueError("'angular_range' не может быть меньше 20!")
         #
         # vals = degrees_to_raw(start), degrees_to_raw(stop)      # , degrees_to_raw(angle_range)
-        self.write_reg(0x01, degrees_to_raw(start), 2)
+        conn = self._connection
+        conn.write_reg(reg_addr=0x01, value=_degrees_to_raw(start), bytes_count=2)
         time.sleep_ms(1)  # ожидаю 1 мс
         # Диапазон задается путем программирования начальной позиции (ZPOS) и либо конечной позиции (MPOS),
         # либо(!) размера углового диапазона (MANG). То есть, либо пара ZPOS, MPOS, либо пара ZPOS, MANG!
         # я выбрал пару ZPOS, MPOS. Если после MPOS записать MANG, то MPOS обнулится!!!
         if stop is not None:
-            self.write_reg(0x03, degrees_to_raw(stop), 2)
+            conn.write_reg(reg_addr=0x03, value=_degrees_to_raw(stop), bytes_count=2)
             return
         if angular_range is not None:
-            self.write_reg(0x05, degrees_to_raw(angular_range), 2)
+            conn.write_reg(reg_addr=0x05, value=_degrees_to_raw(angular_range), bytes_count=2)
 
     def burn(self, angle_or_settings: bool = True):
         """Сохраняет настройки углов(angle_or_settings is True) или настройки(angle_or_settings is False) из
         регистров датчика в энергонезависимую память (OTP).
         Эту команду (BURN_ANGLE) можно выполнить только при наличии
         бита "магнит обнаружен" (MD = 1/status_as5600.mag_detected == True)"""
-        self.write_reg(0xFF, 0x80 if angle_or_settings else 0x40, 1)
+        conn = self._connection
+        conn.write_reg(reg_addr=0xFF, value=0x80 if angle_or_settings else 0x40, bytes_count=1)
 
     def get_counter(self) -> int:
         """Возвращает кол-во операций записи в энергонезависимую память. В датчике на это отведено ДВА бита (ZMCO(1:0)),
         то есть результат будет в диапазоне 0..3"""
-        return 0b11 & self.read_reg(0x00, 1)[0]
+        conn = self._connection
+        return 0b11 & conn.read_reg(reg_addr=0x00, bytes_count=1)[0]
 
     @micropython.native
     def get_conversion_cycle_time(self) -> int:
@@ -218,41 +245,43 @@ class AS5600(DeviceEx, Iterator):
               power_mode: int | None = None,  # bit 1..0
               ) -> config_as5600 | None:
         """Регистр CONF. Если все параметры в None, возвращает содержимое регистра"""
-        val = self.unpack(f"H", self.read_reg(0x07, 2))[0]
+        conn = self._connection
+        val = conn.unpack(f"H", conn.read_reg(reg_addr=0x07, bytes_count=2))[0]
         if all_none(watchdog, fast_filter_threshold, slow_filter, pwm_freq,
                     output_stage, hysteresis, power_mode):
-            return config_as5600(*get_bf_gen(val, _conf_masks))
+            return config_as5600(*_get_bf_gen(val, _conf_masks))
         #
         if watchdog is not None:
             _mask = _conf_masks[0]
-            val &= ~bitmask(_mask)  # mask
+            val &= ~_bitmask(_mask)  # mask
             val |= watchdog << _mask.start
         if fast_filter_threshold is not None:
             _mask = _conf_masks[1]
-            val &= ~bitmask(_mask)  # mask
+            val &= ~_bitmask(_mask)  # mask
             val |= fast_filter_threshold << _mask.start
         if slow_filter is not None:
             _mask = _conf_masks[2]
-            val &= ~bitmask(_mask)  # mask
+            val &= ~_bitmask(_mask)  # mask
             val |= slow_filter << _mask.start
         if pwm_freq is not None:
             _mask = _conf_masks[3]
-            val &= ~bitmask(_mask)  # mask
+            val &= ~_bitmask(_mask)  # mask
             val |= pwm_freq << _mask.start
         if output_stage is not None:
             _mask = _conf_masks[4]
-            val &= ~bitmask(_mask)  # mask
+            val &= ~_bitmask(_mask)  # mask
             val |= output_stage << _mask.start
         if hysteresis is not None:
             _mask = _conf_masks[5]
-            val &= ~bitmask(_mask)  # mask
+            val &= ~_bitmask(_mask)  # mask
             val |= hysteresis << _mask.start
         if power_mode is not None:
             _mask = _conf_masks[6]
-            val &= ~bitmask(_mask)  # mask
+            val &= ~_bitmask(_mask)  # mask
             val |= power_mode << _mask.start
         # print(f"DBG _settings after: 0x{val:x}")
-        self.write_reg(0x07, val, 2)
+        conn = self._connection
+        conn.write_reg(reg_addr=0x07, value=val, bytes_count=2)
         return None
 
     @property
@@ -268,7 +297,7 @@ class AS5600(DeviceEx, Iterator):
     @property
     def angle(self) -> float:
         """Возвращает угол поворота магнита относительно корпуса микросхемы"""
-        return raw_to_degrees(self.get_raw_angle(raw=False))
+        return _raw_to_degrees(self.get_raw_angle(raw=False))
 
     def start_measurement(self, slow_filter: int = 1, fast_filter_threshold: int = 0, watchdog: bool = False,
                           pwm_freq: int = 2, output_stage: int = 2, hysteresis: int = 1, power_mode: int = 1):

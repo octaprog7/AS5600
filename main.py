@@ -58,7 +58,9 @@ def decode_angle_pos(source: as5600mod.angle_positions, _raw: bool):
 
 
 if __name__ == '__main__':
-    i2c = I2C(id=1, scl=Pin(7), sda=Pin(6), freq=400_000)  # on Raspberry Pi Pico
+    # i2c = I2C(id=1, scl=Pin(7), sda=Pin(6), freq=400_000)  # on Raspberry Pi Pico	!!!
+    #i2c = I2C(id=1, scl=Pin(9), sda=Pin(8), freq=400_000)	# ESP32-C3
+    i2c = I2C(id=0, scl=Pin(9), sda=Pin(8), freq=400_000)	# ESP32-C3 !!!
     adapter = I2cAdapter(i2c)
     sensor = as5600mod.AS5600(adapter)
     print(f"Время преобразования [мкс]: {sensor.get_conversion_cycle_time()}")
