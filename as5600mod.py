@@ -38,7 +38,9 @@ def _get_bf_gen(source: int, masks: iter) -> iter:
 
 def _degrees_to_raw(degrees: int) -> int:
     """Преобразует градусы от 0 до 360 в сырые значения для записи в регистры датчика"""
-    check_value(degrees, range(1+_all_round), f"Значение параметра degrees вне допустимого диапазона: {degrees}!")
+    if 360 == degrees:
+        return _mask_12
+    check_value(degrees, range(_all_round), f"Значение параметра degrees вне допустимого диапазона: {degrees}!")
     val = int(round(_raw_per_degrees * degrees))
     if val > _mask_12:
         return _mask_12
@@ -153,11 +155,25 @@ class AS5600(IBaseSensorEx, Iterator):
         conn = self._connection
         return _mask_12 & conn.unpack(f"H", conn.read_reg(reg_addr=0x1B, bytes_count=2))[0]
 
-    def get_raw_angle(self, raw: bool = False) -> int:
-        """Возвращает сырой(raw) угол поворота магнита относительно микросхемы.
-        Если raw Истина, то возвращенное значение не масштабировано (сырое)!
-        Регистр ANGLE имеет гистерезис 10-LSB на пределе диапазона 360 градусов,
-        чтобы избежать точек разрыва или переключения выхода в течение одного оборота."""
+    def get_angle(self, raw: bool = False) -> int:
+        """
+        Возвращает 12-битное значение угла с датчика AS5600.
+
+        Параметры:
+            raw (bool):
+                - Если True — возвращает «сырое» значение из регистра RAW ANGLE (0x0C).
+                Это абсолютное положение магнита (0–4095, полный оборот), не зависящее от настроек ZPOS и MPOS.
+                - Если False (по умолчанию) — возвращает обработанное значение из регистра ANGLE (0x0E).
+                Это значение масштабировано в диапазон между ZPOS и MPOS
+                и содержит гистерезис в 10 LSB около границы 0°/360° при использовании полного диапазона.
+
+        Возвращает:
+            int: 12-битное целое число в диапазоне [0, 4095].
+
+        Примечания:
+            - Оба регистра (RAW ANGLE и ANGLE) всегда доступны; задержка преобразования отсутствует.
+            - Полярность вывода DIR влияет на оба значения одинаково (инверсия на аппаратном уровне).
+        """
         conn = self._connection
         return _mask_12 & conn.unpack(f"H", conn.read_reg(0x0C if raw else 0x0E, bytes_count=2))[0]
 
@@ -174,7 +190,8 @@ class AS5600(IBaseSensorEx, Iterator):
         """Возвращает сырые(raw is True) или в градусах(raw is False) значения:
         начального углового положения(ZPOS/start)
         конечного углового положения(MPOS/stop)
-        размера углового диапазона(MANG/angular_range)"""
+        размера углового диапазона(MANG/angular_range).
+        Если датчик настроен через ZPOS/MPOS, поле angular_range может быть некорректным!"""
         conn = self._connection
         buf = self._buf_6
         conn.read_buf_from_mem(address=0x01, buf=buf)
@@ -186,7 +203,6 @@ class AS5600(IBaseSensorEx, Iterator):
 
     def set_angle_pos(self, start: int = 0, stop: int | None = 360, angular_range: int | None = None):
         """Записывает в регистры датчика начальное угловое положение(start), конечное угловое положение(stop).
-        Угловой диапазон вычисляется автоматически!
         Задавайте пару start и stop, или пару start и angular_range.
         Задавать start, stop и angular_range бессмысленно! Датчик самостоятельно обнулит stop,
         если вы зададите angular_range. Вот такие пошли датчики умные!"""
@@ -197,7 +213,7 @@ class AS5600(IBaseSensorEx, Iterator):
         check_value(start, rng, err_str)
         check_value(stop, rng, err_str)
         check_value(angular_range, rng, err_str)
-        # минимальный угловой диапазон у меня 19 градусов. В документации на датчик это значение равно 18 градусам!
+        # Минимальный угловой диапазон у меня 19 градусов. В документации на датчик это значение равно 18 градусам!
         if angular_range is not None and angular_range < 20:
             raise ValueError("'angular_range' не может быть меньше 20!")
         #
@@ -215,10 +231,37 @@ class AS5600(IBaseSensorEx, Iterator):
             conn.write_reg(reg_addr=0x05, value=_degrees_to_raw(angular_range), bytes_count=2)
 
     def burn(self, angle_or_settings: bool = True):
-        """Сохраняет настройки углов(angle_or_settings is True) или настройки(angle_or_settings is False) из
-        регистров датчика в энергонезависимую память (OTP).
-        Эту команду (BURN_ANGLE) можно выполнить только при наличии
-        бита "магнит обнаружен" (MD = 1/status_as5600.mag_detected == True)"""
+        """
+        Записывает текущие значения в энергонезависимую память OTP (One-Time Programmable).
+
+        Параметры:
+            angle_or_settings (bool):
+                - Если True — выполняется команда BURN_ANGLE: сохраняются значения ZPOS и MPOS.
+                  Может быть выполнена до 3 раз. Требует наличия магнита (бит MD=1 в регистре STATUS).
+                - Если False — выполняется команда BURN_SETTING: сохраняются регистры CONF и MANG.
+                  Может быть выполнена только один раз и только если ZPOS/MPOS ещё не записывались (ZMCO=0).
+
+        Важно:
+            - Перед BURN_ANGLE обязательно убедитесь, что магнит обнаружен (self.status.mag_detected == True),
+              иначе команда будет проигнорирована.
+            - После записи в OTP изменить эти параметры программно невозможно.
+            - Во время записи требуется стабильное питание (см. Electrical Characteristics, стр. 5 даташита).
+
+        Исключения:
+            RuntimeError: если вызвано с angle_or_settings=True, но магнит не обнаружен.
+
+        Пример:
+            enc.get_status()
+            if enc.status.mag_detected:
+                enc.set_angle_pos(0, 180)
+                enc.burn(angle_or_settings=True)  # Сохранить углы
+        """
+        if angle_or_settings:
+            # Обновляем статус, чтобы убедиться, что данные актуальны
+            self.get_status()
+            if not self._mag_detected:
+                raise RuntimeError("BURN_ANGLE не выполнен: магнит не обнаружен (MD=0). Убедитесь, что магнит установлен и находится в пределах рабочего диапазона.")
+
         conn = self._connection
         conn.write_reg(reg_addr=0xFF, value=0x80 if angle_or_settings else 0x40, bytes_count=1)
 
@@ -230,7 +273,7 @@ class AS5600(IBaseSensorEx, Iterator):
 
     @micropython.native
     def get_conversion_cycle_time(self) -> int:
-        """Возвращает время преобразования в [мкс] датчиком данных цвета. В микросекундах!"""
+        """Возвращает время цикла измерения в микросекундах!"""
         k = self._slow_filter
         _check_slow_filter(k)
         return 11 + (2200 // (1 << k))
@@ -279,42 +322,122 @@ class AS5600(IBaseSensorEx, Iterator):
             _mask = _conf_masks[6]
             val &= ~_bitmask(_mask)  # mask
             val |= power_mode << _mask.start
-        # print(f"DBG _settings after: 0x{val:x}")
+        #
         conn = self._connection
         conn.write_reg(reg_addr=0x07, value=val, bytes_count=2)
         return None
 
+    def configure(self,
+                  watchdog: bool | None = None,
+                  fast_filter_threshold: int | None = None,
+                  slow_filter: int | None = None,
+                  pwm_freq: int | None = None,
+                  output_stage: int | None = None,
+                  hysteresis: int | None = None,
+                  power_mode: int | None = None) -> None:
+        """
+        Настраивает регистр CONF (0x07–0x08) датчика AS5600.
+        Параметры, переданные как None, не изменяются.
+
+        Параметры:
+            watchdog (bool | None):
+                Включение сторожевого таймера. При активации (True) датчик переходит в режим LPM3,
+                если угол остаётся в пределах ±4 LSB в течение 1 минуты.
+            fast_filter_threshold (int | None):
+                Порог срабатывания быстрого фильтра (биты FTH[2:0], 0–7).
+                Значения: 0 — только медленный фильтр; 1–7 — порог в LSB (см. даташит, стр. 29).
+            slow_filter (int | None):
+                Настройка медленного фильтра (биты SF[1:0], 0–3):
+                    0 — 2.2 мс, 0.015° шума,
+                    1 — 1.1 мс, 0.021°,
+                    2 — 0.55 мс, 0.030°,
+                    3 — 0.286 мс, 0.043°.
+            pwm_freq (int | None):
+                Частота ШИМ-выхода (биты PWMF[1:0], 0–3):
+                    0 — 115 Гц, 1 — 230 Гц, 2 — 460 Гц, 3 — 920 Гц.
+                Игнорируется, если выбран аналоговый выход.
+            output_stage (int | None):
+                Тип выходного сигнала (биты OUTS[1:0], 0–2):
+                    0 — аналоговый (0–100% VDD),
+                    1 — аналоговый (10–90% VDD),
+                    2 — цифровой ШИМ.
+            hysteresis (int | None):
+                Гистерезис выхода (биты HYST[1:0], 0–3):
+                    0 — отключён,
+                    1–3 — гистерезис 1–3 младших разряда (LSB).
+            power_mode (int | None):
+                Режим энергопотребления (биты PM[1:0], 0–3):
+                    0 — всегда включён (NOM),
+                    1 — опрос каждые 5 мс (LPM1),
+                    2 — опрос каждые 20 мс (LPM2),
+                    3 — опрос каждые 100 мс (LPM3).
+
+        Исключения:
+            ValueError: если любой из переданных параметров выходит за допустимый диапазон.
+
+        Примечание:
+            Все изменения применяются немедленно и могут быть сохранены в OTP с помощью burn(angle_or_settings=False).
+        """
+        def get_err_str(val_name: str, val: int, rng: range) -> str:
+            """Возвращает подробное сообщение об ошибке"""
+            return f"Значение {val} параметра {val_name} вне диапазона [{rng.start}..{rng.stop-1}]!"
+
+        r4 = range(4)
+        #
+        check_value(slow_filter, r4, get_err_str(val_name="slow filter", val=slow_filter, rng=r4))
+        check_value(fast_filter_threshold, range(8), get_err_str(val_name="fast filter threshold", val=fast_filter_threshold, rng=range(8)))
+        check_value(pwm_freq, r4, get_err_str(val_name="pwm freq", val=pwm_freq, rng=r4))
+        check_value(output_stage, range(3), get_err_str(val_name="output stage", val=output_stage, rng=range(3)))
+        check_value(hysteresis, r4, get_err_str(val_name="hysteresis", val=hysteresis, rng=r4))
+        check_value(power_mode, r4, get_err_str(val_name="power_mode", val=power_mode, rng=r4))
+        # запись в регистр CONF
+        self._conf(
+            watchdog=watchdog,
+            fast_filter_threshold=fast_filter_threshold,
+            slow_filter=slow_filter,
+            pwm_freq=pwm_freq,
+            output_stage=output_stage,
+            hysteresis=hysteresis,
+            power_mode=power_mode
+        )
+
+
     @property
     def magnitude(self) -> int:
-        """Возвращает """
+        """Возвращает величину магнитного поля (регистр MAGNITUDE, 0x1B–0x1C)."""
         return self._get_magnitude()
 
     @property
     def gain(self) -> int:
-        """Возвращает """
+        """Возвращает значение коэффициента АРУ (Automatic Gain Control, регистр 0x1A)."""
         return self._get_gain()
 
     @property
     def angle(self) -> float:
         """Возвращает угол поворота магнита относительно корпуса микросхемы"""
-        return _raw_to_degrees(self.get_raw_angle(raw=False))
+        return _raw_to_degrees(self.get_angle(raw=False))
 
-    def start_measurement(self, slow_filter: int = 1, fast_filter_threshold: int = 0, watchdog: bool = False,
-                          pwm_freq: int = 2, output_stage: int = 2, hysteresis: int = 1, power_mode: int = 1):
-        """Настраивает параметры датчика"""
-        def get_err_str(val_name: str, val: int, rng: range) -> str:
-            """Возвращает подробное сообщение об ошибке"""
-            return f"Значение {val} параметра {val_name} вне диапазона [{rng.start}..{rng.stop-1}]!"
-        r4 = range(4)
-        check_value(slow_filter, r4, get_err_str("slow filter", slow_filter, r4))
-        check_value(fast_filter_threshold, range(8), get_err_str("fast filter threshold",
-                                                                 fast_filter_threshold, range(8)))
-        check_value(pwm_freq, r4, get_err_str("pwm freq", pwm_freq, r4))
-        check_value(output_stage, range(3), get_err_str("output stage", output_stage, range(3)))
-        check_value(hysteresis, r4, get_err_str("hysteresis", hysteresis, r4))
-        check_value(power_mode, r4, get_err_str("power_mode", power_mode, r4))
-        #
-        self._conf(watchdog, fast_filter_threshold, slow_filter, pwm_freq, output_stage, hysteresis, power_mode)
+    def start_measurement(self, mode: int | None = None) -> None:
+        """Совместимость с IBaseSensorEx. AS5600 всегда готов к чтению."""
+        pass
+
+    def get_data_status(self, raw=False):
+        """Данные всегда готовы для чтения."""
+        return True
+
+    def soft_reset(self) -> None:
+        """
+        Программный сброс сырых угловых значений в значения по умолчанию:
+        - ZPOS = 0°
+        - MPOS = 360° (полный оборот)
+
+        Эквивалентно состоянию после включения питания (если OTP не запрограммирован).
+        Не затрагивает другие параметры (CONF, гистерезис и т.д.).
+        """
+        conn = self._connection
+        conn.write_reg(reg_addr=0x01, value=0, bytes_count=2)  # ZPOS = 0
+        conn.write_reg(reg_addr=0x03, value=_mask_12, bytes_count=2)  # MPOS = 4095
+
 
     # Iterator
     def __next__(self) -> float | None:

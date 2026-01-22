@@ -48,7 +48,7 @@ def decode_config(source: as5600mod.config_as5600):
 
     print(f"Watchdog: {source.watchdog}")
     print(f"fast filter threshold: {decode_ffh(source.fast_filter_threshold)}; slow filter: {decode_slow_filter(source.slow_filter)}")
-    print(f"PWM frequency: {decode_pwmf(source.pwm_freq)}; output stage: {decode_output_stage(source.output_stage)}")
+    print(f"PWM frequency [Гц]: {decode_pwmf(source.pwm_freq)}; output stage: {decode_output_stage(source.output_stage)}")
     print(f"hysteresis: {decode_hyst(source.hysteresis)}; power mode: {decode_pm(source.power_mode)}")
 
 
@@ -68,12 +68,14 @@ if __name__ == '__main__':
     decode_config(sensor.get_config(noreturn=False))
     print("---Угловые настройки---")
     decode_angle_pos(sensor.get_angle_pos(raw=False), _raw=False)
-    sensor.set_angle_pos(0, 360)
+    if sensor.get_counter() >= 3:
+        print("Внимание: углы зафиксированы в OTP. set_angle_pos не имеет эффекта!")
+    else:
+        sensor.set_angle_pos(0, 360)
     decode_angle_pos(sensor.get_angle_pos(raw=False), _raw=False)
     #
     check_magnet_time = 15
     print("---Проверка наличия магнита---")
-    wait_func = time.sleep_us
     for _ in range(check_magnet_time):
         decode_magnet_status(sensor.status, sensor.gain)
         time.sleep_ms(1000)
@@ -81,8 +83,8 @@ if __name__ == '__main__':
     counter, _max = 0, 10_000
     sensor.start_measurement()
     for angle in sensor:
-        print(f"Угол: {angle}; raw angle: {sensor.get_raw_angle(raw=True)}; коефф. усиления: {sensor.gain}; magnitude: {sensor.magnitude}")
-        wait_func(100_000)
+        print(f"Угол: {angle:.2f}; raw angle: {sensor.get_angle(raw=True)}; коефф. усиления: {sensor.gain}; magnitude: {sensor.magnitude}")
+        time.sleep_ms(100)
         if counter > _max:
             sys.exit(0)
         counter += 1
